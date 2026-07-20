@@ -11,6 +11,7 @@ Run it:
 """
 
 import json
+import importlib
 import time
 from datetime import datetime
 from pathlib import Path
@@ -21,6 +22,8 @@ import capture_service
 import db
 import query
 
+query = importlib.reload(query)
+
 LOGO_PATH = "assets/logo.png"
 WORDMARK_PATH = "assets/wordmark.png"
 
@@ -29,6 +32,18 @@ st.logo(WORDMARK_PATH, size="large", icon_image=LOGO_PATH)
 
 SCREENSHOT_DIR = Path("data/screenshots")
 MODEL_OPTIONS = ["gemma4:e4b", "gemma4:12b"]
+SUGGESTIONS = {
+    ":blue[:material/history:] What was I just working on?": "What was I working on in the last hour?",
+    ":green[:material/checklist:] Pull out my tasks": (
+        "Based on my recent screenshots, what are the top tasks I was working on?"
+    ),
+    ":orange[:material/search:] Find that page again": (
+        "Find the screenshot where I was reading docs about authentication."
+    ),
+    ":violet[:material/analytics:] Summarize today": (
+        "Give me a summary of what I did today and where I spent most of my time."
+    ),
+}
 
 db.init_db()
 
@@ -285,9 +300,12 @@ if "conversation_id" not in st.session_state:
 
 query.QUERY_MODEL = st.session_state.get("model_name", query.QUERY_MODEL)
 
-header = st.container(horizontal=True, vertical_alignment="center")
-header.image(LOGO_PATH, width=52)
-header.title("Hindsight")
+title_row = st.container(horizontal=True, vertical_alignment="bottom")
+with title_row:
+    brand = st.container(horizontal=True, vertical_alignment="center")
+    brand.image(LOGO_PATH, width=44)
+    brand.title("Hindsight")
+
 st.caption("Ask about your screen history")
 
 with st.sidebar:
@@ -336,6 +354,21 @@ with st.sidebar:
 debug = st.session_state.get("debug_mode", False)
 query.DEBUG = False
 
+user_just_asked_initial_question = bool(st.session_state.get("initial_question"))
+user_just_clicked_suggestion = bool(st.session_state.get("selected_suggestion"))
+user_first_interaction = user_just_asked_initial_question or user_just_clicked_suggestion
+has_message_history = bool(st.session_state.messages)
+
+if not user_first_interaction and not has_message_history:
+    st.chat_input("Ask about what you saw…", key="initial_question")
+    st.pills(
+        label="Examples",
+        label_visibility="collapsed",
+        options=SUGGESTIONS.keys(),
+        key="selected_suggestion",
+    )
+    st.stop()
+
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
@@ -348,7 +381,14 @@ for msg in st.session_state.messages:
                 st.markdown("**Retrieved entries:**")
                 st.code(msg["debug"]["context"], language=None)
 
-question = st.chat_input("Ask about what you saw…")
+question = st.chat_input("Ask a follow-up…", submit_mode="disable")
+if not question:
+    if user_just_asked_initial_question:
+        question = st.session_state.initial_question
+        st.session_state.initial_question = None
+    elif user_just_clicked_suggestion:
+        question = SUGGESTIONS.get(st.session_state.selected_suggestion)
+        st.session_state.selected_suggestion = None
 
 if question:
     conversation_id = st.session_state.conversation_id
@@ -367,12 +407,17 @@ if question:
         with st.spinner("Searching your history…"):
             terms = query.extract_search_terms(question, history=history)
             rows = query.retrieve(terms)
-            answer = query.synthesize_answer(question, rows, history=history)
+        stream_synthesize = getattr(query, "stream_synthesize_answer", None)
+        with st.spinner("Thinking…"):
+            if callable(stream_synthesize):
+                answer = st.write_stream(stream_synthesize(question, rows, history=history))
+            else:
+                answer = query.synthesize_answer(question, rows, history=history)
+                st.markdown(answer)
         elapsed_s = time.perf_counter() - started
 
         screenshots = collect_screenshots(rows)
 
-        st.markdown(answer)
         render_screenshots(screenshots)
         render_elapsed(elapsed_s)
 

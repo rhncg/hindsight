@@ -278,20 +278,28 @@ def format_context(rows: list) -> str:
 
 
 def synthesize_answer(question: str, rows: list, history: list | None = None) -> str:
+    return "".join(stream_synthesize_answer(question, rows, history=history)).strip()
+
+
+def stream_synthesize_answer(question: str, rows: list, history: list | None = None):
     context = format_context(rows)
     history_block = _history_block(history, "Conversation so far (oldest first):")
 
     if DEBUG:
         print(f"[debug] context sent to synthesis:\n{context}\n")
 
-    response = ollama.generate(
+    stream = ollama.generate(
         model=QUERY_MODEL,
         prompt=SYNTHESIS_PROMPT.format(
             context=context, question=question, history_block=history_block
         ),
         options={"temperature": 0},
+        stream=True,
     )
-    return response["response"].strip()
+    for chunk in stream:
+        token = chunk.get("response", "")
+        if token:
+            yield token
 
 
 def ask(question: str, history: list | None = None) -> str:
