@@ -1,0 +1,8 @@
+data/
+__pycache__/
+.venv/
+.agents/
+.claude/
+pyrightconfig.json
+.python-version
+.DS_Store
