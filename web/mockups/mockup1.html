@@ -104,6 +104,17 @@
   .cursor{color:var(--accent);animation:blink 1s steps(2,start) infinite;}
   @keyframes blink{to{opacity:.2;}}
   .send:disabled{opacity:.5;cursor:default;}
+  /* animated logo shown while the answer streams (Claude-style pulse) */
+  .stream-logo{display:inline-block;width:17px;height:17px;margin-left:5px;vertical-align:-3px;
+        image-rendering:pixelated;transform-origin:center;
+        animation:hs-pulse 1.1s ease-in-out infinite;
+        filter:drop-shadow(0 0 6px rgba(210,89,30,.65));}
+  @keyframes hs-pulse{
+    0%   {transform:scale(.72) rotate(0deg);   opacity:.65;}
+    50%  {transform:scale(1.12) rotate(8deg);  opacity:1;}
+    100% {transform:scale(.72) rotate(0deg);   opacity:.65;}
+  }
+  .thinking{display:inline-flex;align-items:center;gap:2px;color:var(--ink-faint);}
 
   /* screenshot gallery */
   .shots{margin-top:14px;border:1px solid var(--line-2);border-radius:14px;overflow:hidden;background:var(--panel);}
@@ -115,8 +126,30 @@
   .shots.collapsed .grid{display:none;}
   .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:0 14px 14px;}
   .shot{border-radius:10px;overflow:hidden;background:#100e0b;border:1px solid var(--line);}
-  .shot .ph{aspect-ratio:16/10;display:grid;place-items:center;
-       background:linear-gradient(135deg,#241f19,#1a1612);color:var(--ink-faint);font-size:22px;}
+  .shot .ph{aspect-ratio:16/10;display:grid;place-items:center;position:relative;cursor:pointer;
+       background:linear-gradient(135deg,#241f19,#1a1612);color:var(--ink-faint);font-size:22px;overflow:hidden;}
+  .shot .ph img{width:100%;height:100%;object-fit:cover;display:block;transition:.18s;}
+  /* hover overlay with "Open" */
+  .shot .ph .open-ov{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:7px;
+       background:rgba(16,14,11,.55);color:#fff;font-size:13px;font-weight:500;opacity:0;transition:.16s;}
+  .shot .ph .open-ov svg{width:16px;height:16px;}
+  .shot .ph:hover .open-ov{opacity:1;}
+  .shot .ph:hover img{transform:scale(1.04);}
+
+  /* ---------- Lightbox ---------- */
+  .lightbox{position:fixed;inset:0;z-index:100;background:rgba(6,5,4,.86);backdrop-filter:blur(6px);
+       display:none;flex-direction:column;padding:28px;}
+  .lightbox.open{display:flex;}
+  .lb-bar{display:flex;align-items:flex-start;gap:14px;margin-bottom:14px;color:var(--ink);}
+  .lb-bar .lb-meta{flex:1;min-width:0;}
+  .lb-bar .lb-when{font-size:14px;font-weight:600;color:#fff;}
+  .lb-bar .lb-sum{font-size:13px;color:var(--ink-dim);margin-top:2px;}
+  .lb-close{width:40px;height:40px;border-radius:12px;flex-shrink:0;display:grid;place-items:center;
+       background:var(--panel-2);border:1px solid var(--line-2);color:var(--ink);font-size:18px;}
+  .lb-close:hover{background:#3a3228;}
+  .lb-stage{flex:1;min-height:0;display:grid;place-items:center;}
+  .lb-stage img{max-width:100%;max-height:100%;border-radius:12px;border:1px solid var(--line-2);
+       box-shadow:0 24px 70px rgba(0,0,0,.6);object-fit:contain;}
   .shot .cap{padding:7px 9px;font-size:11px;color:var(--ink-faint);line-height:1.4;}
   .shot .cap b{color:var(--ink-dim);font-weight:500;display:block;}
   .elapsed{margin-top:10px;font-size:12px;color:var(--ink-faint);display:flex;align-items:center;gap:6px;}
@@ -183,6 +216,19 @@
   .metric{flex:1;background:var(--panel-2);border:1px solid var(--line);border-radius:12px;padding:14px;}
   .metric .v{font-size:26px;font-family:var(--serif);color:#fff;}
   .metric .k{font-size:12px;color:var(--ink-faint);}
+  /* data browser tables */
+  .data-label{font-size:13px;font-weight:600;color:var(--ink);margin:20px 0 8px;}
+  .table-wrap{border:1px solid var(--line);border-radius:12px;overflow:auto;max-height:240px;}
+  .table-wrap table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .table-wrap thead th{position:sticky;top:0;z-index:1;background:var(--panel-2);text-align:left;
+        padding:9px 11px;color:var(--ink-dim);font-weight:500;border-bottom:1px solid var(--line);white-space:nowrap;}
+  .table-wrap tbody td{padding:8px 11px;border-bottom:1px solid var(--line);color:var(--ink-dim);vertical-align:top;}
+  .table-wrap tbody tr:last-child td{border-bottom:none;}
+  .table-wrap tbody tr:hover td{background:var(--panel-2);}
+  .table-wrap td.trunc{max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .table-wrap td.nowrap{white-space:nowrap;}
+  .table-wrap td.num{text-align:right;font-variant-numeric:tabular-nums;}
+  .table-empty{padding:16px;color:var(--ink-faint);font-size:13px;}
   .hidden{display:none!important;}
 </style>
 </head>
@@ -291,10 +337,14 @@
       </div>
       <div id="t-data" class="hidden">
         <div class="metric-row">
-          <div class="metric"><div class="v">1,284</div><div class="k">Screenshots captured</div></div>
-          <div class="metric"><div class="v">7</div><div class="k">Conversations</div></div>
+          <div class="metric"><div class="v">—</div><div class="k">Screenshots captured</div></div>
+          <div class="metric"><div class="v">—</div><div class="k">Conversations</div></div>
         </div>
-        <div class="hint">Browse everything Hindsight holds about you — nothing leaves this machine.</div>
+        <div class="hint">Everything Hindsight holds about you — nothing leaves this machine.</div>
+        <div class="data-label">Screenshots</div>
+        <div class="table-wrap" id="shotsTable"><div class="table-empty">Loading…</div></div>
+        <div class="data-label">Conversations</div>
+        <div class="table-wrap" id="convosTable"><div class="table-empty">Loading…</div></div>
       </div>
       <div id="t-danger" class="hidden">
         <div class="field">
@@ -305,6 +355,15 @@
       </div>
     </div>
   </div>
+</div>
+
+<!-- ===================== LIGHTBOX ===================== -->
+<div class="lightbox" id="lightbox">
+  <div class="lb-bar">
+    <div class="lb-meta"><div class="lb-when" id="lbWhen"></div><div class="lb-sum" id="lbSum"></div></div>
+    <button class="lb-close" title="Close" onclick="closeLightbox()">✕</button>
+  </div>
+  <div class="lb-stage"><img id="lbImg" src="" alt=""></div>
 </div>
 
 <script>
@@ -321,6 +380,7 @@
   let streaming = false;  // guard against double-sends
 
   const esc = s => (s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const escAttr = s => esc(s).replace(/"/g,'&quot;');
 
   /* very small markdown: **bold**, paragraphs from blank lines */
   function md(text){
@@ -404,13 +464,19 @@
     scrollEl.classList.toggle('hidden',on);
   }
 
+  const OPEN_OV = `<div class="open-ov">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M10 14L21 3M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></svg>Open</div>`;
+
   function shotsHTML(shots){
     if(!shots || !shots.length) return '';
-    const cells = shots.map(s=>`
-      <div class="shot">
-        <div class="ph">${s.url?`<img src="${s.url}" style="width:100%;height:100%;object-fit:cover" alt="">`:'🖼'}</div>
-        <div class="cap"><b>${fmtWhen(s.captured_at)} · ${esc(s.app_name||'unknown app')}</b>${esc(s.summary||'')}</div>
-      </div>`).join('');
+    const cells = shots.map(s=>{
+      const when = fmtWhen(s.captured_at) + ' · ' + (s.app_name||'unknown app');
+      const ph = s.url
+        ? `<div class="ph" data-url="${escAttr(s.url)}" data-when="${escAttr(when)}" data-sum="${escAttr(s.summary||'')}" onclick="openLightbox(this)">
+             <img src="${escAttr(s.url)}" alt="">${OPEN_OV}</div>`
+        : `<div class="ph">🖼</div>`;
+      return `<div class="shot">${ph}<div class="cap"><b>${esc(when)}</b>${esc(s.summary||'')}</div></div>`;
+    }).join('');
     return `<div class="shots">
         <div class="shots-head" onclick="this.parentElement.classList.toggle('collapsed')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
@@ -447,6 +513,19 @@
   }
   const scrollBottom = ()=>{ scrollEl.scrollTop = scrollEl.scrollHeight; };
 
+  /* ---------------- screenshot lightbox ---------------- */
+  function openLightbox(ph){
+    document.getElementById('lbImg').src = ph.dataset.url;
+    document.getElementById('lbWhen').textContent = ph.dataset.when || '';
+    document.getElementById('lbSum').textContent = ph.dataset.sum || '';
+    document.getElementById('lightbox').classList.add('open');
+  }
+  function closeLightbox(){ document.getElementById('lightbox').classList.remove('open'); }
+  document.getElementById('lightbox').addEventListener('click', e=>{
+    if(e.target.id==='lightbox' || e.target.classList.contains('lb-stage')) closeLightbox();
+  });
+  document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeLightbox(); });
+
   /* ---------------- send + SSE stream ---------------- */
   async function send(){
     const q = input.value.trim();
@@ -465,7 +544,7 @@
     holder.className = 'msg bot';
     holder.innerHTML = `<div class="m-avatar"><img src="/assets/logo.png" alt=""></div>
       <div class="m-body"><div class="m-name">Hindsight</div>
-        <div class="m-text"><p class="cursor">Searching your history…</p></div></div>`;
+        <div class="m-text"><p class="thinking">Searching your history…<img class="stream-logo" src="/assets/logo.png" alt=""></p></div></div>`;
     threadEl.appendChild(holder);
     const textEl = holder.querySelector('.m-text');
     const bodyEl = holder.querySelector('.m-body');
@@ -491,7 +570,7 @@
           const data = JSON.parse(dataLine.slice(6));
           if(ev==='token'){
             answer += data.text;
-            textEl.innerHTML = md(answer) + '<span class="cursor">▍</span>';
+            textEl.innerHTML = md(answer) + '<img class="stream-logo" src="/assets/logo.png" alt="">';
             scrollBottom();
           } else if(ev==='done'){
             textEl.innerHTML = md(answer);
@@ -522,6 +601,18 @@
     send();
   }
 
+  /* ---------------- data browser tables ---------------- */
+  function dataTable(rows, cols){
+    if(!rows || !rows.length) return '<div class="table-empty">Nothing here yet.</div>';
+    const head = '<thead><tr>'+cols.map(c=>`<th>${esc(c.label)}</th>`).join('')+'</tr></thead>';
+    const body = '<tbody>'+rows.map(r=>'<tr>'+cols.map(c=>{
+      const raw = String(c.fmt(r) ?? '');
+      const title = c.cls==='trunc' ? ` title="${escAttr(raw)}"` : '';
+      return `<td class="${c.cls||''}"${title}>${esc(raw)}</td>`;
+    }).join('')+'</tr>').join('')+'</tbody>';
+    return `<table>${head}${body}</table>`;
+  }
+
   /* ---------------- settings ---------------- */
   function openSettings(){ document.getElementById('settings').classList.add('open'); refreshSettings(); }
   function closeSettings(){ document.getElementById('settings').classList.remove('open'); }
@@ -546,6 +637,20 @@
       const metrics = document.querySelectorAll('#t-data .metric .v');
       if(metrics[0]) metrics[0].textContent = data.screenshot_count.toLocaleString();
       if(metrics[1]) metrics[1].textContent = data.conversation_count.toLocaleString();
+      const baseName = p => (p||'').split('/').pop();
+      document.getElementById('shotsTable').innerHTML = dataTable(data.screenshots, [
+        {label:'Captured', cls:'nowrap', fmt:r=>fmtWhen(r.captured_at)},
+        {label:'App',      cls:'nowrap', fmt:r=>r.app_name||'—'},
+        {label:'Summary',  cls:'trunc',  fmt:r=>r.summary||''},
+        {label:'Extracted text', cls:'trunc', fmt:r=>r.raw_text||''},
+        {label:'File',     cls:'trunc',  fmt:r=>baseName(r.image_path)},
+      ]);
+      document.getElementById('convosTable').innerHTML = dataTable(data.conversations, [
+        {label:'Title',       cls:'trunc',  fmt:r=>r.title||'New chat'},
+        {label:'Messages',    cls:'num',    fmt:r=>r.message_count},
+        {label:'Started',     cls:'nowrap', fmt:r=>fmtWhen(r.created_at)},
+        {label:'Last active', cls:'nowrap', fmt:r=>fmtWhen(r.updated_at)},
+      ]);
       const del = document.querySelector('#t-danger .btn-danger');
       if(del) del.onclick = async()=>{ if(confirm('Delete all screenshots and history? This cannot be undone.')){
         await fetch('/api/history/clear',{method:'POST'}); refreshSettings(); } };
